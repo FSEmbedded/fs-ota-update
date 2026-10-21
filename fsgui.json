@@ -1,0 +1,296 @@
+{
+  "type": "tab",
+  "version": 1,
+  "weight": 80,
+  "panelTitle": "FS-OTA-Update",
+  "buttonTitle": "  FS-OTA-Update",
+  "readmePath": "./README.md",
+  "url": "http://localhost:8098",
+
+  "autoExec": [
+    {
+      "type": "runTasks",
+      "tasks": {
+          "mode": "parsed",
+          "args": "python3 ./fs-ota-updater.py --availableCerts",
+          "outputs":
+            {
+              "target": "certSelect",
+              "widget": "select-options",
+              "mode": "set",
+              "parser": {
+                "pattern": "^(?<value>.*)$",
+                "labelGroup": "value",
+                "valueGroup": "value"
+                }
+            }
+         }
+      },
+      {
+        "type": "runTasks",
+        "tasks": {
+          "mode": "parsed",
+          "args": "python3 ./fs-ota-updater.py --getLocalIp",
+          "outputs":
+            {
+              "target": "hawkbitServerIp",
+              "widget": "textbox",
+              "mode": "set",
+              "parser": {
+                  "pattern": "^(?<value>.*)"
+                }
+            }
+         }
+      }
+  ],
+  "reloadExec": [
+      {
+      "type": "runTasks",
+      "tasks": {
+            "args": "python3 {{fusysPath}} --getRaucUpdateBundle build={{buildSelect}} machine={{machineSelect}} image={{imageSelect}}",
+            "mode": "parsed",
+            "outputs":
+            {
+              "target": "bundleSelect",
+              "widget": "select-options",
+              "mode": "set",
+              "parser": {
+                "pattern": "^(?<value>.*)$",
+                "labelGroup": "value",
+                "valueGroup": "value"
+                }
+            }
+          }
+      }
+  ],
+  "components": [
+    {
+      "type": "h1",
+      "text": "FS-OTA-Update"
+    },
+
+    {
+      "type": "h2",
+      "text": "Hawkbit Update Server"
+    },
+    {
+      "type": "p",
+      "text": [
+                "The Eclipse Hawkbit server manages and deploys software updates to connected devices.\n",
+                "A test setup with a simple browser based GUI is provided as docker containers.\n"
+              ]
+    },
+    {
+      "type": "p",
+      "text": "Start or stop the Hawkbit server.\nThe default user is 'admin' with password 'admin'."
+    },
+    {
+      "type": "row",
+      "children": [
+        {
+          "type": "button",
+          "text": "Initialize",
+          "action": {
+            "type": "runTasks",
+            "tasks":
+              {
+                "args": "python3 ./fs-ota-updater.py --hawkbit action=up"
+              }
+          }
+        },
+        {
+          "type": "button",
+          "text": "Shutdown",
+          "action": {
+            "type": "runTasks",
+            "tasks":
+              {
+                "args": "python3 ./fs-ota-updater.py --hawkbit action=down"
+              }
+          }
+        }
+      ]
+    },
+    {
+      "type": "p",
+      "text": "Open the Hawkbit GUI in the browser to manage and monitor updates."
+    },
+    {
+      "type": "button", "text": "Open Hawkbit GUI",
+      "action": {
+        "type": "openSimpleBrowser",
+        "url": "http://localhost:8098/"
+      }
+    },
+    {
+      "type": "h2",
+      "text": "Generate Certificates"
+    },
+    {
+      "type": "h4",
+      "text": "For development purposes only!"
+    },
+      {
+      "type": "h4",
+      "text": "The production certificates should be generated and stored in a secure environment."
+    },
+    {
+      "type": "p",
+      "text": [
+                "Rauc uses SSL certificates to sign the update bundles.\n",
+                "For development purposes, self-signed certificates can be generated using the form below."
+              ]
+    },
+    {
+      "type": "textbox",
+      "id": "inputOrganisationName",
+      "label": {
+        "text": "Name of the organisation, signing the images:",
+        "position": "top"
+      }
+    },
+    {
+      "type": "textbox",
+      "id": "inputCertificateExpiryDays",
+      "label": {
+        "text":"Days after which the certificates expire:",
+        "position": "top"
+      }
+    },
+    {
+      "type": "button",
+      "text": "Generate Certificates",
+      "requires": ["inputOrganisationName", "inputCertificateExpiryDays"],
+      "action": {
+        "type": "runTasks",
+        "tasks":
+        {
+          "args": "python3 ./fs-ota-updater.py --generateCertificates org={{inputOrganisationName}} days={{inputCertificateExpiryDays}}"
+        }
+      }
+    },
+    {
+      "type": "h2",
+      "text": "Configure Build for OTA Updates"
+    },
+    {
+      "type": "p",
+      "text": "Select the certificate to use for signing the update bundle:"
+    },
+    {
+      "type": "selectbox",
+      "id": "certSelect",
+      "label": {
+        "text": "Select certificate:",
+        "position": "top"
+      },
+      "options": []
+    },
+    {
+      "type": "p",
+      "text": "Provide the Hawkbit server IP (default: the ip of your development machine):"
+    },
+    {
+      "type": "textbox",
+      "id": "hawkbitServerIp",
+      "label": {
+        "text":"Hawkbit server IP:",
+        "position": "top"
+      }
+    },
+    {
+      "type": "p",
+      "text": [
+                "Configure the selected Yocto build with the certificate,\nthe selected Image and the Hawkbit server IP.\n",
+                "This will write all necessary settings to the configuration file."
+              ]
+    },
+    {
+      "type": "button",
+      "text": "Configure Build",
+      "requires": ["certSelect", "buildSelect", "machineSelect", "imageSelect"],
+      "action": [
+        {
+        "type": "runTasks",
+        "tasks":
+          {
+            "args": "python3 {{fusysPath}} --getConfigFile build={{buildSelect}}",
+            "mode": "parsed",
+            "outputs": {
+              "widget": "variable",
+              "target": "configFile"
+            }
+          }
+        },
+        {
+        "type": "runTasks",
+        "tasks":
+          {
+          "args": "python3 ./fs-ota-updater.py --configureBuild certs={{certSelect}}  configFile={{configFile}} image={{imageSelect}} machine={{machineSelect}} serverip={{hawkbitServerIp}}"
+          }
+        }
+      ]
+    },
+    {
+      "type": "p",
+      "text": [ "Configure Board with your certificate and setting. (only works with evaluation images).\n",
+                "Provide the IP address of the board:" ]
+    },
+    {
+      "type": "textbox",
+      "id": "boardIp",
+      "label": {
+        "text":"Board IP:",
+        "position": "top"
+      }
+    },
+    {
+      "type": "button",
+      "text": "Configure Board ",
+      "requires": ["certSelect",  "boardIp", "hawkbitServerIp", "machineSelect" ],
+      "action": [
+        {
+        "type": "runTasks",
+        "tasks":
+          {
+          "args": "python3 ./fs-ota-updater.py --configureBoard certs={{certSelect}} boardip={{boardIp}} serverip={{hawkbitServerIp}} machine={{machineSelect}}"
+          }
+        }
+      ]
+    },
+    {
+      "type": "p",
+      "text": "Restart your Yocto build to generate the update bundle."
+    },
+    {
+      "type": "h2",
+      "text": "Upload RAUC Update Bundle"
+    },
+    {
+      "type": "p",
+      "text": "Select an RAUC update bundle and upload it to the Hawkbit server."
+    },
+    {
+      "type": "selectbox",
+      "id": "bundleSelect",
+      "label": {
+        "text": "Select RAUC update bundle:",
+        "position": "top"
+      },
+      "options": []
+    },
+    {
+      "type": "button",
+      "text": "Upload Rauc Update Bundle",
+      "requires": ["buildSelect", "machineSelect","bundleSelect", "hawkbitServerIp"],
+      "action": {
+        "type": "runTasks",
+        "tasks": [
+          {
+          "args": "python3 ./fs-ota-updater.py --uploadRaucUpdateBundle machine={{machineSelect}} bundle={{bundleSelect}} ip={{hawkbitServerIp}}"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+# Eclipse hawkBit update server (monolith, PostgreSQL) for distributing
+# RAUC bundles to fus-update-ab devices.
+#
+# Images + environment are pinned to the upstream eclipse-hawkbit
+# docker/postgres "monolith-with-ui" compose (see upstream/ for the
+# verbatim originals). The ONLY change vs upstream is a persistent
+# postgres data volume — upstream persists only uploaded artifacts, so
+# targets / distribution sets would be lost on `compose down`.
+#
+# Ports (published on the host):
+#   8080  hawkBit Management REST + DDI API   (devices poll here; curl/REST)
+#   8088  hawkBit web UI                       (login admin / admin)
+#   15672 RabbitMQ management UI (optional)     (guest / guest)
+# Login for UI + Management REST: admin / admin
+#
+# Persistence: postgres metadata in volume "pgdata", uploaded .raucb in
+# volume "artifactrepo". `docker compose down` keeps both; add -v to wipe.
+name: hawkbit
+
+services:
+  postgres:
+    image: "postgres:16.5"
+    environment:
+      POSTGRES_DB: "hawkbit"
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "admin"
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # persistence (added vs upstream)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d hawkbit -U postgres"]
+      interval: 20s
+      retries: 10
+    restart: no
+
+  rabbitmq:
+    image: "rabbitmq:4-management-alpine"
+    hostname: "rabbitmq"
+    environment:
+      RABBITMQ_DEFAULT_VHOST: "/"
+      RABBITMQ_DEFAULT_USER: "guest"
+      RABBITMQ_DEFAULT_PASS: "guest"
+    ports:
+      - "15672:15672"
+    restart: no
+
+  # Runs the schema migration once, then stays alive (healthy) so the
+  # hawkbit service can gate its start on it. FLYWAY is disabled in hawkbit
+  # because this container owns the migration.
+  hawkbit-db-init:
+    image: "hawkbit/hawkbit-repository-jpa-init:latest"
+    environment:
+      - 'HAWKBIT_DB_MODE=migrate'
+      - 'SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/hawkbit'
+      - 'SPRING_DATASOURCE_USERNAME=postgres'
+      - 'SPRING_DATASOURCE_PASSWORD=admin'
+      - 'AND_THEN=sleep infinity'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pgrep", "sleep"]
+      start_period: 30s
+      interval: 10s
+      retries: 5
+      timeout: 60s
+    restart: no
+
+  hawkbit:
+    image: "hawkbit/hawkbit-update-server:latest"
+    environment:
+      - 'PROFILES=postgresql'
+      - 'SPRING_FLYWAY_ENABLED=false'
+      - 'SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/hawkbit'
+      - 'SPRING_DATASOURCE_USERNAME=postgres'
+      - 'SPRING_DATASOURCE_PASSWORD=admin'
+      - 'SPRING_RABBITMQ_HOST=rabbitmq'
+      - 'SPRING_RABBITMQ_USERNAME=guest'
+      - 'SPRING_RABBITMQ_PASSWORD=guest'
+      # Accept the per-target security token in DDI (off by default) so a
+      # device can authenticate with auth_token in its config.conf.
+      - 'HAWKBIT_SERVER_DDI_SECURITY_AUTHENTICATION_TARGETTOKEN_ENABLED=true'
+    ports:
+      - "8090:8080"
+    volumes:
+      - artifactrepo:/app/artifactrepo
+    depends_on:
+      hawkbit-db-init:
+        condition: service_healthy
+    restart: unless-stopped
+
+  hawkbit-ui:
+    image: "hawkbit/hawkbit-ui:latest"
+    environment:
+      - 'SPRING_APPLICATION_JSON={"hawkbit.server.mgmtUrl": "http://hawkbit:8080"}'
+    ports:
+      - "8098:8088"
+    depends_on:
+      - hawkbit
+    restart: no
+
+volumes:
+  pgdata:
+    driver: local
+  artifactrepo:
+    driver: local
